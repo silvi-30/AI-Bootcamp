@@ -1,5 +1,7 @@
 # Conocimientos necesarios para el Proyecto de Regresión PM2.5
 
+> Documento resumen derivado de `Proyecto_regresion.md`.
+
 ---
 
 ## 1. Modelos de Machine Learning
