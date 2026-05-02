@@ -72,7 +72,7 @@
 ### MLOps y versionado
 | Librería | Uso |
 |---|---|
-| `joblib` / `pickle` | Serialización de modelos y preprocesadores |
+| `joblib` *(preferido)* / `pickle` *(solo para artefactos de confianza)* | Serialización de modelos y preprocesadores; evita cargar `pickle` desde fuentes no confiables porque puede permitir ejecución de código |
 | `mlflow` *(opcional)* | Tracking de experimentos y artefactos |
 
 ### Deployment / API
