@@ -1,0 +1,25 @@
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# Archivos compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Archivos del sistema
+.DS_Store
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datos locales
+*.csv
+*.xlsx
