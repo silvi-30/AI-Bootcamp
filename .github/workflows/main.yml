@@ -26,7 +26,15 @@ jobs:
       run: |
         cd backend
         python cron.py | tee cron_$(date +\%Y\%m\%d_\%H\%M\%S).log
-    
+
+    - name: Commit and push changes
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+        git add data/ingest/ingest_data.csv
+        git commit -m "chore: actualizar datos de ingesta" || true
+        git push origin deployment
+        
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v3
