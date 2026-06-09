@@ -147,6 +147,9 @@ def chatear(session_id: str, mensaje: str) -> dict:
         - session_id: el ID de sesión (para mantener continuidad)
         - mensajes_en_memoria: cantidad de mensajes guardados para este usuario
     """
+    
+    # ✓ Crea template fresco cada vez
+    template = crear_template_dinamico()
 
     # Paso 1 — traemos el historial de este usuario desde Redis
     historial_redis = obtener_historial(session_id)
