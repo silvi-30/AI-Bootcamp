@@ -31,7 +31,7 @@ jobs:
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
-        git add data/ingest/ingest_data.csv
+        git add app/data/ingest/ingest_data.csv
         git commit -m "chore: actualizar datos de ingesta" || true
         git push origin deployment
         
