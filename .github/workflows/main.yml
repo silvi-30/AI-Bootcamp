@@ -1,0 +1,48 @@
+name: PM2.5 CRON - Ingesta y Predicción
+
+on:
+  schedule:
+    - cron: '1 * * * *'  # Minuto 1 de cada hora
+
+permissions:
+  contents: write
+  
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: deployment
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r backend/requirements.txt
+    
+    - name: Run CRON
+      env:
+        REDIS_URL: ${{ secrets.REDIS_URL }}
+      run: |
+        cd backend
+        python cron.py | tee cron_$(date +\%Y\%m\%d_\%H\%M\%S).log
+
+    - name: Commit and push changes
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+        git add app/data/ingest/ingest_data.csv
+        git commit -m "chore: actualizar datos de ingesta" || true
+        git push origin deployment
+        
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: cron-logs
+        path: backend/cron_*.log
