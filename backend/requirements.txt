@@ -1,0 +1,23 @@
+# Core
+python-dotenv
+pandas
+numpy
+
+# API
+fastapi
+uvicorn
+pydantic
+
+# Data & ML
+xgboost
+joblib
+scikit-learn
+
+# Redis
+redis
+
+# LLM & AI
+langchain
+langchain-groq
+langchain-community
+
