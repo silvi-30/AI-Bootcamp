@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: deployment
     
@@ -23,6 +23,7 @@ jobs:
     
     - name: Install dependencies
       run: |
+        pip install --upgrade pip
         pip install -r backend/requirements.txt
     
     - name: Run CRON
@@ -37,7 +38,8 @@ jobs:
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
         git add app/data/ingest/ingest_data.csv
-        git commit -m "chore: actualizar datos de ingesta" || true
+        git diff --quiet || git commit -m "chore: actualizar datos de ingesta"
+        git pull --rebase origin deployment
         git push origin deployment
         
     - name: Upload logs
@@ -45,4 +47,4 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: cron-logs
-        path: backend/cron_*.log
+        path: backend/*.log
