@@ -1,66 +1,60 @@
 """
-advisor.py — Lógica del asesor "Rocío":
+advisor.py — Rocío como RAG con LangChain + LCEL + Redis Cloud.
 
-1. Categoriza un valor de PM2.5 según umbrales (basados en guías de la OMS 2021
-   y el AQI estadounidense, simplificados a 4 categorías).
-2. Construye el banner de calidad (color + título + mensaje breve).
-3. Expone `chat_with_rocio()` que llama a la API de Anthropic con el contexto
-   del pronóstico ya inyectado. Si no hay API key configurada, cae a un
-   modo demo con respuestas locales según el nivel.
+Mantiene la misma API pública que la versión anterior (categorize, worst_of,
+chat_with_rocio, build_forecast_context) para que app.py no requiera cambios.
+
+Cambio importante en esta versión:
+- El vector store vive en Redis Cloud (no en disco local), lo que permite que
+  Streamlit Community Cloud funcione sin necesidad de commitear datos al repo.
+- Necesita dos variables de entorno: GROQ_API_KEY y REDIS_URL.
+- Si alguna falla, Rocío usa un fallback local basado en el nivel pronosticado.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
-# La API de Anthropic se importa de forma perezosa para que la app funcione
-# aunque el paquete `anthropic` no esté instalado o no haya API key.
+# ----------------------------------------------------------------------------
+# Carga de credenciales (Streamlit secrets → .env → env var del sistema)
+# ----------------------------------------------------------------------------
+def _load_secret(name: str) -> str | None:
+    """Carga un secreto desde st.secrets si está en Streamlit, sino del env."""
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and name in st.secrets:
+            os.environ[name] = st.secrets[name]
+    except Exception:
+        pass
+    return os.environ.get(name)
+
+
+# Intentar cargar .env local si existe
 try:
-    from anthropic import Anthropic
-    _ANTHROPIC_AVAILABLE = True
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
 except ImportError:
-    _ANTHROPIC_AVAILABLE = False
+    pass
+
+# Empujar Streamlit secrets a env vars
+_load_secret("GROQ_API_KEY")
+_load_secret("REDIS_URL")
 
 
 # ----------------------------------------------------------------------------
 # Categorías de calidad del aire — umbrales OMS 2021
 # ----------------------------------------------------------------------------
-# Fuente: WHO Global Air Quality Guidelines 2021 (publicadas en septiembre 2021).
-# Para PM2.5 (promedio 24h), la OMS define:
-#
-#   - AQG  (Air Quality Guideline)   :  15 µg/m³   ← guía recomendada
-#   - IT-4 (Interim Target 4)        :  25 µg/m³
-#   - IT-3 (Interim Target 3)        :  37.5 µg/m³
-#   - IT-2 (Interim Target 2)        :  50 µg/m³
-#   - IT-1 (Interim Target 1)        :  75 µg/m³   ← objetivo para países muy contaminados
-#
-# Para la app simplificamos a 4 categorías agrupando los Interim Targets en
-# tramos clínicamente significativos:
-#
-#   < 15  µg/m³  →  Bueno          (por debajo de la guía OMS, aire saludable)
-#   < 35  µg/m³  →  Moderado       (entre IT-4 e IT-3, sensibles deben cuidarse)
-#   < 75  µg/m³  →  Poco saludable (entre IT-3 e IT-1, riesgo para todos)
-#   ≥ 75  µg/m³  →  Peligroso      (por encima del peor Interim Target)
-#
-# NOTA METODOLÓGICA:
-# La OMS define estos cortes sobre PROMEDIOS de 24 horas, no sobre valores
-# horarios. Nuestro modelo predice valores horarios, así que estos umbrales
-# son una APROXIMACIÓN razonable para una alerta operativa, no un diagnóstico
-# clínico. En una versión productiva habría que (a) promediar las 6 horas
-# pronosticadas y comparar contra el umbral 24h, o (b) usar los cortes
-# horarios de EPA NowCast. Para un MVP es defendible este uso porque
-# comunica el orden de magnitud correcto al usuario.
-
 @dataclass(frozen=True)
 class AirQualityLevel:
     key: str
-    label: str           # texto del banner
-    short: str           # etiqueta corta (good/moderate/unhealthy/hazardous)
-    color: str           # hex para banner/borde
-    bg: str              # hex para fondo del banner
-    text: str            # color del texto en banner
-    advice: str          # mensaje corto bajo el banner
-    number_color: str    # color para el número grande en las tarjetas
+    label: str
+    short: str
+    color: str
+    bg: str
+    text: str
+    advice: str
+    number_color: str
 
 
 GOOD = AirQualityLevel(
@@ -116,18 +110,13 @@ HAZARDOUS = AirQualityLevel(
     number_color="#7a2a8a",
 )
 
-
-# Cortes (en µg/m³) — derivados de los umbrales OMS 2021 ver arriba
-WHO_GUIDELINE      = 15.0    # AQG
-WHO_INTERIM_3      = 35.0    # ~IT-3 redondeado (37.5)
-WHO_INTERIM_1      = 75.0    # IT-1
+WHO_GUIDELINE = 15.0
+WHO_INTERIM_3 = 35.0
+WHO_INTERIM_1 = 75.0
 
 
 def categorize(pm25: float) -> AirQualityLevel:
-    """Devuelve la categoría OMS para un valor de PM2.5 en µg/m³.
-
-    Cortes: 15 / 35 / 75 µg/m³ (ver bloque de documentación arriba).
-    """
+    """Devuelve la categoría OMS para un valor de PM2.5 en µg/m³."""
     if pm25 < WHO_GUIDELINE:
         return GOOD
     elif pm25 < WHO_INTERIM_3:
@@ -139,39 +128,14 @@ def categorize(pm25: float) -> AirQualityLevel:
 
 
 def worst_of(values: list[float]) -> AirQualityLevel:
-    """Categoría correspondiente al PEOR valor de una lista (para el banner global)."""
     return categorize(max(values))
 
 
 # ----------------------------------------------------------------------------
-# Chat con Rocío
+# Construcción del contexto del pronóstico
 # ----------------------------------------------------------------------------
-SYSTEM_PROMPT = """Eres Rocío, una asesora amable y experta en salud respiratoria y \
-calidad del aire. Hablas en español, con cercanía pero rigor. Tu trabajo es ayudar al \
-usuario a entender el pronóstico de PM2.5 de las próximas 6 horas en su ciudad y darle \
-recomendaciones prácticas para protegerse.
-
-Reglas:
-- Usa SIEMPRE el pronóstico que el usuario te comparte como contexto. No inventes números.
-- Sé concisa: 3 a 6 frases por respuesta, salvo que pidan más detalle.
-- Apóyate en los umbrales OMS 2021 para PM2.5 al hacer recomendaciones:
-    * < 15 µg/m³  → aire saludable, actividad normal
-    * 15–35 µg/m³ → moderado, sensibles deben cuidarse
-    * 35–75 µg/m³ → poco saludable para todos, evitar ejercicio al aire libre
-    * ≥ 75 µg/m³  → peligroso, quedarse en interiores con purificador
-- Si el usuario menciona condiciones de salud (asma, EPOC, embarazo, edad \
-avanzada, niños), ajusta las recomendaciones para mayor cuidado: ellos deben \
-tratar el siguiente nivel inferior como su umbral.
-- Cuando sea relevante para la pregunta, identifica franjas horarias del \
-pronóstico con mejores y peores valores para dar consejos accionables \
-(ej: "sal a caminar entre las 14:00 y las 15:00 que es lo más limpio").
-- No diagnostiques; sugiere consultar a un profesional si hay síntomas.
-- No respondas a temas ajenos a calidad del aire / salud respiratoria; redirige amable.
-"""
-
-
 def build_forecast_context(prediction: dict) -> str:
-    """Convierte el dict de predicción en un bloque de contexto para el modelo."""
+    """Convierte el dict de predicción en un bloque de contexto para el LLM."""
     t = prediction["timestamp"]
     lines = [
         f"Hora actual del pronóstico: {t.strftime('%Y-%m-%d %H:%M')}",
@@ -188,7 +152,7 @@ def build_forecast_context(prediction: dict) -> str:
     m = prediction["meteo"]
     lines += [
         "",
-        f"Condiciones meteorológicas actuales:",
+        "Condiciones meteorológicas actuales:",
         f"  - Temperatura: {m['TEMP']:.1f} °C",
         f"  - Punto de rocío: {m['DEWP']:.1f} °C",
         f"  - Presión: {m['PRES']:.0f} hPa",
@@ -198,72 +162,200 @@ def build_forecast_context(prediction: dict) -> str:
     return "\n".join(lines)
 
 
-def _fallback_reply(user_msg: str, prediction: dict) -> str:
-    """Respuesta local cuando no hay API key configurada (modo demo puro)."""
+# ----------------------------------------------------------------------------
+# RAG con Redis: construcción perezosa de la chain (singleton)
+# ----------------------------------------------------------------------------
+# Constantes — deben coincidir con el notebook que creó el índice
+INDEX_NAME = "rocio_pm25"
+EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+LLM_MODEL = "llama-3.1-8b-instant"
+
+ROCIO_SYSTEM_PROMPT = """Eres Rocío, una asesora amable y experta en salud respiratoria y \
+calidad del aire. Hablas en español, con cercanía pero rigor. Tu trabajo es ayudar al \
+usuario a entender el pronóstico de PM2.5 y darle recomendaciones prácticas para protegerse.
+
+Reglas:
+- Basa SIEMPRE tus recomendaciones en el CONTEXTO DE FUENTES proporcionado. Si el \
+contexto no cubre algo, dilo claramente en vez de inventar.
+- Usa el PRONÓSTICO ACTUAL para personalizar tu respuesta (no des consejos genéricos).
+- Sé concisa: 3 a 6 frases, salvo que pidan más detalle.
+- Si el usuario menciona condiciones de salud (asma, EPOC, embarazo, edad avanzada, \
+niños), aplica recomendaciones para grupos sensibles: ellos deben tratar el siguiente \
+nivel inferior como su umbral.
+- Cuando sea útil, identifica franjas horarias del pronóstico con valores mejores/peores.
+- No diagnostiques; sugiere consultar a un profesional si hay síntomas preocupantes.
+- No respondas a temas ajenos a calidad del aire o salud respiratoria; redirige amable.
+"""
+
+ROCIO_USER_TEMPLATE = """CONTEXTO DE FUENTES (OMS, EPA, AirNow):
+{context}
+
+PRONÓSTICO ACTUAL DEL USUARIO:
+{forecast_context}
+
+PREGUNTA DEL USUARIO:
+{question}
+
+Responde como Rocío, en español, basándote en el contexto y personalizando con el pronóstico."""
+
+
+# Cache global de la chain
+_chain = None
+_chain_error: str | None = None
+
+
+def _try_build_chain():
+    """Intenta construir la chain RAG conectada a Redis. Devuelve (chain, error_msg)."""
+    if not os.environ.get("GROQ_API_KEY"):
+        return None, "GROQ_API_KEY no configurada."
+    if not os.environ.get("REDIS_URL"):
+        return None, "REDIS_URL no configurada."
+
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_redis import RedisVectorStore, RedisConfig
+        from langchain_groq import ChatGroq
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+
+        # Embeddings (locales, se descargan en primer uso)
+        embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+
+        # Conexión al vector store ya existente en Redis
+        config = RedisConfig(
+            index_name=INDEX_NAME,
+            redis_url=os.environ["REDIS_URL"],
+        )
+        vector_store = RedisVectorStore(
+            embeddings=embeddings,
+            config=config,
+        )
+        retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+
+        # LLM
+        llm = ChatGroq(
+            model=LLM_MODEL,
+            temperature=0.3,
+            max_tokens=600,
+        )
+
+        # Prompt + parser
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", ROCIO_SYSTEM_PROMPT),
+            ("user", ROCIO_USER_TEMPLATE),
+        ])
+        parser = StrOutputParser()
+
+        def format_docs(docs):
+            return "\n\n---\n\n".join(d.page_content for d in docs)
+
+        # LCEL chain
+        chain = (
+            {
+                "context": (lambda x: x["question"]) | retriever | format_docs,
+                "forecast_context": lambda x: x["forecast_context"],
+                "question": lambda x: x["question"],
+            }
+            | prompt
+            | llm
+            | parser
+        )
+        return chain, None
+
+    except Exception as e:
+        return None, f"Error construyendo el RAG: {type(e).__name__}: {e}"
+
+
+def _get_chain():
+    """Devuelve la chain ya construida (perezoso + cacheado).
+
+    En Streamlit usa @st.cache_resource (una sola carga por sesión del servidor).
+    Fuera de Streamlit usa singleton global.
+    """
+    global _chain, _chain_error
+    if _chain is not None:
+        return _chain
+    if _chain_error is not None:
+        return None  # ya intentamos y falló
+
+    try:
+        import streamlit as st
+
+        @st.cache_resource(show_spinner="Cargando a Rocío… (descarga del modelo: ~1-3 min la primera vez)")
+        def _build():
+            return _try_build_chain()
+
+        chain, err = _build()
+    except ImportError:
+        chain, err = _try_build_chain()
+
+    if chain is None:
+        _chain_error = err
+        return None
+    _chain = chain
+    return _chain
+
+
+# ----------------------------------------------------------------------------
+# Fallback local (si el RAG no está disponible)
+# ----------------------------------------------------------------------------
+_FALLBACK_BY_LEVEL = {
+    "good": (
+        "Las próximas 6 horas se mantienen en rango saludable. Puedes hacer "
+        "ejercicio al aire libre, salir a caminar y ventilar tu casa con tranquilidad. "
+        "Si tienes asma o eres muy sensible, lleva siempre tu inhalador a la mano."
+    ),
+    "moderate": (
+        "El aire estará en rango moderado. Si haces ejercicio intenso, considera "
+        "moverlo a interiores o esperar a una franja con valores más bajos. "
+        "Personas con asma, embarazadas o niños pequeños deberían reducir el "
+        "tiempo al aire libre. Mantén ventanas cerradas si vives cerca de avenidas."
+    ),
+    "unhealthy": (
+        "El pronóstico muestra niveles poco saludables. Te recomiendo evitar "
+        "actividad física al aire libre, usar mascarilla N95 si necesitas salir, "
+        "y mantener tu casa cerrada con un purificador si tienes uno. Hidrátate "
+        "bien y atiende cualquier molestia respiratoria."
+    ),
+    "hazardous": (
+        "⚠️ Niveles peligrosos en el pronóstico. Quédate en interiores tanto como "
+        "puedas, sella ventanas y puertas, y usa un purificador HEPA si lo tienes. "
+        "Si necesitas salir, mascarilla N95 bien ajustada es indispensable. Consulta "
+        "a un médico si presentas tos, opresión en el pecho o dificultad para respirar."
+    ),
+}
+
+
+def _fallback_reply(prediction: dict) -> str:
     worst = worst_of([v for _, v in prediction["forecast"]])
-    base = {
-        "good": (
-            "Las próximas 6 horas se mantienen en rango saludable. Puedes hacer "
-            "ejercicio al aire libre, salir a caminar y ventilar tu casa con tranquilidad. "
-            "Si tienes asma o eres muy sensible, lleva siempre tu inhalador a la mano."
-        ),
-        "moderate": (
-            "El aire estará en rango moderado. Si haces ejercicio intenso, "
-            "considera moverlo a interiores o esperar a una franja con valores más bajos. "
-            "Personas con asma, embarazadas o niños pequeños deberían reducir el tiempo "
-            "al aire libre. Mantén ventanas cerradas si vives cerca de avenidas."
-        ),
-        "unhealthy": (
-            "El pronóstico muestra niveles poco saludables. Te recomiendo evitar "
-            "actividad física al aire libre, usar mascarilla N95 si necesitas salir, "
-            "y mantener tu casa cerrada con un purificador si tienes uno. "
-            "Hidrátate bien y atiende cualquier molestia respiratoria."
-        ),
-        "hazardous": (
-            "⚠️ Niveles peligrosos en el pronóstico. Quédate en interiores tanto como "
-            "puedas, sella ventanas y puertas, y usa un purificador de aire con filtro "
-            "HEPA si lo tienes. Si necesitas salir, mascarilla N95 bien ajustada es "
-            "indispensable. Consulta a un médico si presentas tos, opresión en el pecho "
-            "o dificultad para respirar."
-        ),
-    }[worst.key]
-    return base
+    return _FALLBACK_BY_LEVEL[worst.key]
 
 
+# ----------------------------------------------------------------------------
+# API pública: chat_with_rocio
+# ----------------------------------------------------------------------------
 def chat_with_rocio(
     user_message: str,
-    history: list[dict],
+    history: list[dict],  # (no usado; mantenido por compatibilidad con app.py)
     prediction: dict,
 ) -> str:
-    """Envía el mensaje a Claude con el contexto del pronóstico inyectado.
+    """Pregunta a Rocío. Usa el RAG si está disponible; si no, fallback local."""
+    chain = _get_chain()
+    if chain is None:
+        return _fallback_reply(prediction)
 
-    `history`: lista de mensajes previos en formato [{"role": "user"|"assistant", "content": str}, ...]
-    Devuelve el texto de respuesta de Rocío.
-
-    Si no hay API key (variable de entorno ANTHROPIC_API_KEY) o el paquete `anthropic`
-    no está disponible, se cae a una respuesta local basada en el nivel pronosticado.
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not (_ANTHROPIC_AVAILABLE and api_key):
-        return _fallback_reply(user_message, prediction)
-
-    client = Anthropic(api_key=api_key)
-    context_block = build_forecast_context(prediction)
-    system = (
-        SYSTEM_PROMPT
-        + "\n\n--- CONTEXTO DEL PRONÓSTICO ACTUAL ---\n"
-        + context_block
-    )
-    # history ya viene con turnos previos; agregamos el nuevo turno del usuario
-    messages = history + [{"role": "user", "content": user_message}]
-
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=600,
-        system=system,
-        messages=messages,
-    )
-    # Concatenar bloques de texto
-    return "".join(
-        block.text for block in response.content if getattr(block, "type", "") == "text"
-    )
+    try:
+        forecast_context = build_forecast_context(prediction)
+        return chain.invoke({
+            "question": user_message,
+            "forecast_context": forecast_context,
+        })
+    except Exception as e:
+        return (
+            f"😅 Tuve un problema técnico al consultarte ({type(e).__name__}). "
+            f"Mientras tanto, según el pronóstico:\n\n{_fallback_reply(prediction)}"
+        )
