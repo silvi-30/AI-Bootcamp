@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AireVivo · Monitor PM2.5 Medellín</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── TOKENS ─────────────────────────────────────────────────────── */
+    :root {
+      --bg:            #D6EDD9;
+      --bg-card:       #F5F7F3;
+      --bg-chat:       #CDEBD1;
+      --surface:       #E8F0EA;
+      --border:        #9BBFA0;
+      --accent:        #2E7A56;
+      --accent-dim:    #235F42;
+      --text-primary:  #0D2E1A;
+      --text-muted:    #3B6B4A;
+      --text-dim:      #5A8A6A;
+      --good:          #1A6E3C;
+      --moderate:      #8A5A00;
+      --unhealthy:     #A03800;
+      --very-unhealthy:#8A1A38;
+      --hazardous:     #6A0A28;
+      --font-mono:     'DM Mono', monospace;
+      --font-body:     'Inter', sans-serif;
+      --r-card:        16px;
+      --r-pill:        999px;
+      --shadow:        0 4px 24px rgba(0,0,0,0.12);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── PAGE WRAPPER ───────────────────────────────────────────────── */
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px 64px;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { width: 36px; height: 36px; }
+
+    .logo-text {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text-primary);
+      letter-spacing: -0.5px;
+    }
+    .logo-text span { color: var(--accent); }
+
+    .header-meta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: right;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 6px;
+      animation: pulse-dot 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── HERO ───────────────────────────────────────────────────────── */
+    .hero {
+      padding: 56px 0 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .hero-copy h1 {
+      font-size: clamp(28px, 4vw, 42px);
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -1px;
+      margin-bottom: 14px;
+    }
+    .hero-copy h1 em { font-style: normal; color: var(--accent); }
+    .hero-copy p { font-size: 15px; color: var(--text-muted); max-width: 380px; line-height: 1.7; }
+
+    .hero-current {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-card);
+      padding: 32px 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-current::before {
+      content: '';
+      position: absolute; top: -40px; right: -40px;
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(76,175,130,0.12) 0%, transparent 70%);
+    }
+
+    .current-label {
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 400;
+      color: var(--text-dim);
+      letter-spacing: 1.5px; text-transform: uppercase;
+    }
+    .current-value {
+      font-family: var(--font-mono);
+      font-size: 64px; font-weight: 300;
+      line-height: 1; letter-spacing: -3px;
+    }
+    .current-unit { font-size: 18px; color: var(--text-muted); letter-spacing: 0; }
+    .current-status {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: var(--r-pill);
+      font-size: 13px; font-weight: 500;
+      width: fit-content; margin-top: 4px;
+    }
+    .current-date {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--text-dim); margin-top: 4px;
+    }
+
+    /* ── SECTION HEADER ─────────────────────────────────────────────── */
+    .section-header {
+      display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px;
+    }
+    .section-title {
+      font-size: 13px; font-weight: 500; color: var(--text-muted);
+      letter-spacing: 1px; text-transform: uppercase; font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+    .section-line { flex: 1; height: 1px; background: var(--border); }
+
+    /* ── FORECAST GRID ──────────────────────────────────────────────── */
+    .forecast-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+
+    .forecast-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-card);
+      padding: 20px 14px;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      position: relative;
+    }
+    .forecast-card:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: 0 8px 24px rgba(46,122,86,0.18); }
+    .forecast-card:active { transform: translateY(-2px); }
+
+    /* tooltip hint */
+    .forecast-card::after {
+      content: 'Preguntar a Sofía';
+      position: absolute;
+      bottom: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      border-radius: var(--r-pill);
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 10;
+    }
+    .forecast-card:hover::after { opacity: 1; }
+
+    .forecast-hour {
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    .quality-ring { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
+    .quality-ring svg { width: 56px; height: 56px; transform: rotate(-90deg); }
+    .quality-ring .ring-bg  { fill: none; stroke: var(--surface); stroke-width: 3.5; }
+    .quality-ring .ring-fill {
+      fill: none; stroke-width: 3.5; stroke-linecap: round;
+      stroke-dasharray: 141; stroke-dashoffset: 141;
+      transition: stroke-dashoffset 1s cubic-bezier(.4,0,.2,1), stroke 0.4s;
+      animation: breathe-stroke 3.5s ease-in-out infinite;
+    }
+    @keyframes breathe-stroke {
+      0%, 100% { opacity: 0.75; }
+      50%       { opacity: 1; }
+    }
+
+    .forecast-date {
+      font-family: var(--font-mono); font-size: 10px;
+      color: var(--text-dim); text-align: center; line-height: 1.5;
+    }
+    .forecast-badge {
+      font-size: 10px; font-weight: 500;
+      padding: 3px 8px; border-radius: var(--r-pill); text-align: center; white-space: nowrap;
+    }
+
+    /* ── AQI COLORS ─────────────────────────────────────────────────── */
+    .aqi-good          { color: var(--good); }
+    .aqi-moderate      { color: var(--moderate); }
+    .aqi-unhealthy     { color: var(--unhealthy); }
+    .aqi-very-bad      { color: var(--very-unhealthy); }
+    .aqi-hazardous     { color: var(--hazardous); }
+    .badge-good        { background: #D4F0DF;  color: #1A6E3C; }
+    .badge-moderate    { background: #FDF0CC;  color: #8A5A00; }
+    .badge-unhealthy   { background: #FFE4CC;  color: #A03800; }
+    .badge-very-bad    { background: #FDDDE4;  color: #8A1A38; }
+    .badge-hazardous   { background: #F5C8D4;  color: #6A0A28; }
+
+    /* ── LEGEND ─────────────────────────────────────────────────────── */
+    .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 56px; }
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted); }
+    .legend-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── SKELETON ───────────────────────────────────────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--border) 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════
+       CHAT SECTION — full-width inline block
+    ══════════════════════════════════════════════════════════════════ */
+    .chat-section {
+      background: var(--bg-chat);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 56px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header strip */
+    .chat-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .chat-header-left { display: flex; align-items: center; gap: 14px; }
+
+    .sofia-avatar {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #235F42, #2E7A56);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; flex-shrink: 0;
+    }
+
+    .chat-header-info h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .chat-header-info p  {
+      font-size: 12px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    /* Session ID pill */
+    .session-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      padding: 6px 14px;
+    }
+    .session-pill-label {
+      font-family: var(--font-mono); font-size: 10px;
+      color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase;
+    }
+    .session-pill-id {
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--accent); letter-spacing: 0.5px;
+      max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .copy-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-dim); padding: 2px;
+      transition: color 0.15s;
+      display: flex; align-items: center;
+    }
+    .copy-btn:hover { color: var(--accent); }
+    .copy-btn svg   { width: 13px; height: 13px; }
+
+    /* New session button */
+    .new-session-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      color: var(--text-muted);
+      font-size: 12px; font-family: var(--font-body);
+      padding: 6px 14px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .new-session-btn:hover { border-color: var(--accent-dim); color: var(--text-primary); }
+    .new-session-btn svg   { width: 13px; height: 13px; }
+
+    /* Messages area */
+    .chat-messages {
+      min-height: 320px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex; flex-direction: column; gap: 14px;
+      scroll-behavior: smooth;
+    }
+    .chat-messages::-webkit-scrollbar       { width: 5px; }
+    .chat-messages::-webkit-scrollbar-track  { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 4px; }
+
+    /* Message bubbles */
+    .msg-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .msg-row.user { flex-direction: row-reverse; }
+
+    .msg-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .msg-avatar.bot-av  { background: linear-gradient(135deg, #235F42, #2E7A56); }
+    .msg-avatar.user-av { background: var(--surface); color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+
+    .msg-content { display: flex; flex-direction: column; gap: 4px; max-width: 72%; }
+    .msg-row.user .msg-content { align-items: flex-end; }
+
+    .msg-sender {
+      font-family: var(--font-mono); font-size: 10px;
+      color: var(--text-dim); letter-spacing: 0.5px;
+    }
+
+    .msg {
+      padding: 12px 16px;
+      border-radius: 16px;
+      font-size: 14px; line-height: 1.6;
+      word-break: break-word;
+    }
+    .msg.bot  {
+      background: var(--surface); color: var(--text-primary);
+      border-bottom-left-radius: 4px;
+    }
+    .msg.user {
+      background: var(--accent); color: #fff;
+      font-weight: 500; border-bottom-right-radius: 4px;
+    }
+    .msg.thinking {
+      background: var(--surface); color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* animated ellipsis */
+    .dots {
+      display: inline-flex; gap: 3px; align-items: center; margin-left: 6px;
+    }
+    .dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--text-muted);
+      animation: dot-bounce 1.2s ease-in-out infinite;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes dot-bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40%            { transform: translateY(-5px); opacity: 1; }
+    }
+
+    /* Suggestions */
+    .suggestions {
+      padding: 12px 24px 16px;
+      display: flex; flex-wrap: wrap; gap: 8px;
+      border-top: 1px solid var(--border);
+      align-items: center;
+    }
+    .suggestions-label {
+      width: 100%; font-family: var(--font-mono); font-size: 10px;
+      color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .chip {
+      padding: 7px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      color: var(--text-muted); font-size: 12.5px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .chip:hover {
+      background: var(--accent-dim); color: var(--text-primary); border-color: var(--accent-dim);
+    }
+
+    /* Input row */
+    .chat-input-row {
+      padding: 14px 24px;
+      display: flex; gap: 10px; align-items: center;
+      border-top: 1px solid var(--border);
+      background: var(--bg-chat);
+    }
+    .chat-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      padding: 11px 18px;
+      color: var(--text-primary);
+      font-size: 14px; font-family: var(--font-body);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .chat-input:focus   { border-color: var(--accent-dim); }
+    .chat-input::placeholder { color: var(--text-dim); }
+
+    .send-btn {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--accent); border: none;
+      cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .send-btn:hover    { background: #235F42; transform: scale(1.05); }
+    .send-btn:disabled { background: var(--accent-dim); cursor: not-allowed; transform: none; }
+    .send-btn svg      { width: 17px; height: 17px; color: #fff; }
+
+    /* ── FOOTER ─────────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 0;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px;
+    }
+    footer p   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+    footer a   { color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+    footer a:hover { color: var(--accent); }
+
+    /* ── RESPONSIVE ─────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 28px; }
+      .forecast-grid { grid-template-columns: repeat(4, 1fr); }
+      .session-pill-id { max-width: 140px; }
+    }
+    @media (max-width: 600px) {
+      .forecast-grid { grid-template-columns: repeat(2, 1fr); }
+      .chat-messages { max-height: 360px; }
+      .msg-content   { max-width: 86%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .quality-ring .ring-fill, .status-dot, .dots span { animation: none; }
+    }
+  </style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- ── HEADER ──────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <svg class="logo-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="17" stroke="#2A4A3A" stroke-width="1.5"/>
+        <path d="M8 22 Q12 14 18 16 Q24 18 28 12" stroke="#4CAF82" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <circle cx="18" cy="22" r="4" fill="rgba(76,175,130,0.15)" stroke="#4CAF82" stroke-width="1.5"/>
+        <circle cx="18" cy="22" r="1.5" fill="#4CAF82"/>
+      </svg>
+      <span class="logo-text">Aire<span>Vivo</span></span>
+    </div>
+    <div class="header-meta">
+      <div><span class="status-dot"></span>Monitoreo activo</div>
+      <div id="live-time">Medellín, Colombia</div>
+    </div>
+  </header>
+
+  <!-- ── HERO ────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>Pronóstico de<br><em>calidad del aire</em><br>en tiempo real</h1>
+      <p>Predicciones horarias de PM2.5 basadas en modelos de inteligencia artificial. Información para la toma de decisiones en salud pública y gestión ambiental.</p>
+    </div>
+    <div class="hero-current">
+      <span class="current-label">próxima hora</span>
+      <div>
+        <span class="current-value aqi-good" id="hero-val">–</span>
+        <span class="current-unit"> µg/m³</span>
+      </div>
+      <span class="current-status badge-good" id="hero-status">Cargando...</span>
+      <span class="current-date" id="hero-date">–</span>
+    </div>
+  </section>
+
+  <!-- ── FORECAST ─────────────────────────────────────────────────── -->
+  <div class="section-header">
+    <span class="section-title">Pronóstico 7 horas</span>
+    <div class="section-line"></div>
+    <span class="section-title" id="forecast-inference">–</span>
+  </div>
+
+  <div class="forecast-grid" id="forecast-grid">
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height:18px;border-radius:999px;"></div></div>
+    <div class="forecast-card"><div class="skeleton" style="width:40px;height:12px;"></div><div class="skeleton" style="width:56px;height:56px;border-radius:50%;"></div><div class="skeleton" style="width:50px;height:10px;"></div><div class="skeleton" style="width:44px;height;18px;border-radius:999px;"></div></div>
+  </div>
+
+  <!-- ── LEGEND ───────────────────────────────────────────────────── -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#4CAF82"></div>Buena (0–12)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#F9C74F"></div>Moderada (12–35)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#F4845F"></div>No saludable (35–55)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#E05C72"></div>Muy no saludable (55–150)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#C42847"></div>Peligrosa (&gt;150)</div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       CHAT SECTION
+  ═══════════════════════════════════════════════════════════════ -->
+  <div class="section-header">
+    <span class="section-title">Asistente Sofía</span>
+    <div class="section-line"></div>
+  </div>
+
+  <div class="chat-section">
+
+    <!-- Chat header -->
+    <div class="chat-header">
+      <div class="chat-header-left">
+        <div class="sofia-avatar">🌿</div>
+        <div class="chat-header-info">
+          <h3>Sofía</h3>
+          <p><span class="status-dot"></span>Asistente ambiental · IA</p>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <!-- Session ID pill -->
+        <div class="session-pill">
+          <span class="session-pill-label">sesión</span>
+          <span class="session-pill-id" id="session-display">nueva</span>
+          <button class="copy-btn" id="copy-session-btn" title="Copiar ID de sesión">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <!-- New session button -->
+        <button class="new-session-btn" id="new-session-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10"></polyline>
+            <path d="M3.51 15a9 9 0 1 0 .49-3.22"></path>
+          </svg>
+          Nueva sesión
+        </button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg-row bot">
+        <div class="msg-avatar bot-av">🌿</div>
+        <div class="msg-content">
+          <span class="msg-sender">Sofía</span>
+          <div class="msg bot">
+            ¡Hola! Soy Sofía, tu asistente de calidad del aire 🌱<br><br>
+            Puedo ayudarte con información sobre el PM2.5, sus efectos en la salud, recomendaciones para el día y mucho más. ¿En qué te ayudo?
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Suggestion chips -->
+    <div class="suggestions" id="suggestions-panel">
+      <span class="suggestions-label">Preguntas frecuentes</span>
+      <span class="chip" data-q="¿Qué es el PM2.5 y por qué es peligroso?">¿Qué es el PM2.5?</span>
+      <span class="chip" data-q="¿Cuándo es seguro hacer ejercicio al aire libre según la calidad del aire?">Ejercicio al aire libre</span>
+      <span class="chip" data-q="¿Qué efectos tiene el PM2.5 en la salud de los niños?">Efectos en niños</span>
+      <span class="chip" data-q="¿Cómo puedo protegerme de la contaminación del aire hoy?">¿Cómo protegerme?</span>
+      <span class="chip" data-q="¿Qué grupos de población son más vulnerables a la contaminación por PM2.5?">Grupos vulnerables</span>
+      <span class="chip" data-q="¿Qué actividades debo evitar cuando hay contaminación alta?">¿Qué evitar hoy?</span>
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-row">
+      <input
+        class="chat-input"
+        id="chat-input"
+        type="text"
+        placeholder="Escribe tu pregunta a Sofía..."
+        autocomplete="off"
+      />
+      <button class="send-btn" id="send-btn" aria-label="Enviar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+
+  </div><!-- /chat-section -->
+
+  <!-- ── FOOTER ──────────────────────────────────────────────────── -->
+  <footer>
+    <p>AireVivo © 2025 · Modelo IA de predicción PM2.5</p>
+    <p>Datos actualizados cada hora · <a href="https://ai-bootcamp-czpe.onrender.com/docs" target="_blank">API Docs</a></p>
+  </footer>
+
+</div><!-- /page -->
+
+
+<script>
+  // ── CONFIG ──────────────────────────────────────────────────────────
+  const API_BASE = 'https://ai-bootcamp-czpe.onrender.com';
+  const MAX_PM   = 200;
+
+  // ── STATE ────────────────────────────────────────────────────────────
+  let sessionId   = null;
+  let isBotTyping = false;
+
+  // ── UTILS ────────────────────────────────────────────────────────────
+  function aqiInfo(pm) {
+    if (pm <= 12)  return { label: 'Buena',            cls: 'good',      color: '#4CAF82' };
+    if (pm <= 35)  return { label: 'Moderada',         cls: 'moderate',  color: '#F9C74F' };
+    if (pm <= 55)  return { label: 'No saludable',     cls: 'unhealthy', color: '#F4845F' };
+    if (pm <= 150) return { label: 'Muy no saludable', cls: 'very-bad',  color: '#E05C72' };
+    return              { label: 'Peligrosa',          cls: 'hazardous', color: '#C42847' };
+  }
+
+  function formatDate(isoStr) {
+    return new Date(isoStr).toLocaleString('es-CO', {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true
+    });
+  }
+
+  function formatHourShort(isoStr) {
+    return new Date(isoStr).toLocaleString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true });
+  }
+
+  function ringOffset(pm, max) {
+    return 141 * (1 - Math.min(pm / max, 1));
+  }
+
+  function shortId(id) {
+    if (!id) return 'nueva';
+    return id.length > 18 ? id.slice(0, 8) + '…' + id.slice(-6) : id;
+  }
+
+  // ── LIVE CLOCK ────────────────────────────────────────────────────
+  function updateClock() {
+    document.getElementById('live-time').textContent =
+      new Date().toLocaleString('es-CO', {
+        weekday: 'short', day: 'numeric', month: 'short',
+        hour: '2-digit', minute: '2-digit', hour12: true
+      });
+  }
+  updateClock();
+  setInterval(updateClock, 60000);
+
+  // ── PREDICTIONS ──────────────────────────────────────────────────
+  async function loadPredictions() {
+    try {
+      const res  = await fetch(`${API_BASE}/predicciones`);
+      const data = await res.json();
+      if (!data.predicciones || data.predicciones.length === 0) return;
+
+      const first = data.predicciones[0];
+      const info0 = aqiInfo(first.pm25);
+      document.getElementById('hero-val').textContent    = first.pm25.toFixed(1);
+      document.getElementById('hero-val').className      = `current-value aqi-${info0.cls}`;
+      document.getElementById('hero-status').textContent = info0.label;
+      document.getElementById('hero-status').className   = `current-status badge-${info0.cls}`;
+      document.getElementById('hero-date').textContent   = 'Para: ' + formatDate(first.fecha);
+
+      if (data.fecha_inferencia) {
+        document.getElementById('forecast-inference').textContent =
+          'Inferido: ' + formatDate(data.fecha_inferencia);
+      }
+
+      const grid = document.getElementById('forecast-grid');
+      grid.innerHTML = '';
+      data.predicciones.forEach((p, i) => {
+        const info   = aqiInfo(p.pm25);
+        const offset = ringOffset(p.pm25, MAX_PM);
+        const card   = document.createElement('div');
+        card.className = 'forecast-card';
+        // Store data for click-to-ask
+        card.dataset.pm   = p.pm25.toFixed(1);
+        card.dataset.hora = formatHourShort(p.fecha);
+        card.dataset.idx  = i + 1;
+        card.dataset.cat  = info.label;
+        card.innerHTML = `
+          <span class="forecast-hour">+${i + 1}h</span>
+          <div class="quality-ring">
+            <svg viewBox="0 0 50 50">
+              <circle class="ring-bg"   cx="25" cy="25" r="22.5"/>
+              <circle class="ring-fill" cx="25" cy="25" r="22.5"
+                stroke="${info.color}"
+                style="stroke-dashoffset:${offset};"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;
+              justify-content:center;font-family:'DM Mono',monospace;
+              font-size:12px;font-weight:500;color:${info.color};">
+              ${p.pm25.toFixed(1)}
+            </div>
+          </div>
+          <span class="forecast-date">${formatHourShort(p.fecha)}</span>
+          <span class="forecast-badge badge-${info.cls}">${info.label}</span>
+        `;
+        card.addEventListener('click', () => {
+          const pregunta = `Para las ${card.dataset.hora} (en +${card.dataset.idx}h) se pronostica un PM2.5 de ${card.dataset.pm} µg/m³ (${card.dataset.cat}). ¿Qué recomendaciones me das para esa hora?`;
+          // Scroll suavemente al chat
+          document.querySelector('.chat-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // Pequeño delay para que el scroll termine antes de enviar
+          setTimeout(() => sendMessage(pregunta), 400);
+        });
+        grid.appendChild(card);
+      });
+    } catch (err) {
+      console.error('Error cargando predicciones:', err);
+      document.getElementById('hero-val').textContent    = 'Error';
+      document.getElementById('hero-status').textContent = 'Sin datos';
+    }
+  }
+
+  loadPredictions();
+  setInterval(loadPredictions, 5 * 60 * 1000);
+
+  // ── SESSION DISPLAY ──────────────────────────────────────────────
+  function updateSessionDisplay(id) {
+    document.getElementById('session-display').textContent = shortId(id);
+    document.getElementById('session-display').title = id || '';
+  }
+
+  // Copy session ID
+  document.getElementById('copy-session-btn').addEventListener('click', () => {
+    if (!sessionId) return;
+    navigator.clipboard.writeText(sessionId).then(() => {
+      const btn = document.getElementById('copy-session-btn');
+      btn.style.color = '#4CAF82';
+      setTimeout(() => { btn.style.color = ''; }, 1500);
+    });
+  });
+
+  // New session
+  document.getElementById('new-session-btn').addEventListener('click', () => {
+    sessionId = null;
+    updateSessionDisplay(null);
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = '';
+    appendMsg('bot', 'Sofía', `¡Sesión reiniciada! 🌱 Soy Sofía, tu asistente de calidad del aire. ¿En qué te puedo ayudar?`);
+    document.getElementById('suggestions-panel').style.display = 'flex';
+  });
+
+  // ── CHAT ──────────────────────────────────────────────────────────
+  function appendMsg(role, sender, text) {
+    const box = document.getElementById('chat-messages');
+    const isUser = role === 'user';
+
+    const row = document.createElement('div');
+    row.className = `msg-row ${role}`;
+
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = `msg-avatar ${isUser ? 'user-av' : 'bot-av'}`;
+    avatarDiv.textContent = isUser ? 'Tú' : '🌿';
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'msg-content';
+
+    const senderSpan = document.createElement('span');
+    senderSpan.className = 'msg-sender';
+    senderSpan.textContent = sender;
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `msg ${role}`;
+    msgDiv.innerHTML = text.replace(/\n/g, '<br>');
+
+    contentDiv.appendChild(senderSpan);
+    contentDiv.appendChild(msgDiv);
+
+    if (isUser) {
+      row.appendChild(contentDiv);
+      row.appendChild(avatarDiv);
+    } else {
+      row.appendChild(avatarDiv);
+      row.appendChild(contentDiv);
+    }
+
+    box.appendChild(row);
+    box.scrollTop = box.scrollHeight;
+    return msgDiv;
+  }
+
+  function appendThinking() {
+    const box = document.getElementById('chat-messages');
+    const row = document.createElement('div');
+    row.className = 'msg-row bot';
+    row.id = 'thinking-row';
+    row.innerHTML = `
+      <div class="msg-avatar bot-av">🌿</div>
+      <div class="msg-content">
+        <span class="msg-sender">Sofía</span>
+        <div class="msg thinking">
+          Pensando
+          <span class="dots">
+            <span></span><span></span><span></span>
+          </span>
+        </div>
+      </div>`;
+    box.appendChild(row);
+    box.scrollTop = box.scrollHeight;
+    return row;
+  }
+
+  async function sendMessage(text) {
+    if (!text.trim() || isBotTyping) return;
+    isBotTyping = true;
+
+    document.getElementById('suggestions-panel').style.display = 'none';
+    appendMsg('user', 'Tú', text);
+    document.getElementById('chat-input').value = '';
+    document.getElementById('send-btn').disabled = true;
+
+    const thinkingRow = appendThinking();
+
+    try {
+      const body = { mensaje: text };
+      if (sessionId) body.session_id = sessionId;
+
+      const res  = await fetch(`${API_BASE}/consultar`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+      });
+
+      const data = await res.json();
+      sessionId  = data.session_id;
+      updateSessionDisplay(sessionId);
+
+      thinkingRow.remove();
+      appendMsg('bot', 'Sofía', data.respuesta);
+
+    } catch (err) {
+      thinkingRow.remove();
+      appendMsg('bot', 'Sofía', 'Lo siento, no pude conectarme con el servidor. Intenta de nuevo en un momento 🌿');
+    }
+
+    isBotTyping = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('chat-input').focus();
+  }
+
+  document.getElementById('send-btn').addEventListener('click', () => {
+    sendMessage(document.getElementById('chat-input').value);
+  });
+
+  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(e.target.value);
+    }
+  });
+
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => sendMessage(chip.dataset.q));
+  });
+</script>
+
+</body>
+</html>
