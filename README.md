@@ -1,4 +1,4 @@
-# AireVivo 🌿 [Enlace-web](pm25-forecast-agent.netlify.app)
+# AireVivo 🌿 [Enlace-web](http://pm25-forecast-agent.netlify.app)
 ## Monitor Inteligente de PM2.5 en Medellín
 
 [![API Status](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://ai-bootcamp-czpe.onrender.com)
