@@ -1,4 +1,4 @@
-# AireVivo 🌿
+# AireVivo 🌿 [Enlace-web](pm25-forecast-agent.netlify.app)
 ## Monitor Inteligente de PM2.5 en Medellín
 
 [![API Status](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://ai-bootcamp-czpe.onrender.com)
@@ -911,8 +911,8 @@ Este proyecto está bajo la licencia **MIT**. Ver archivo `LICENSE` para más de
 
 ## 👥 Autores
 
-- **Silvina** — Desarrollo full-stack, modelos ML, deployment
-- **Equipo AI-Bootcamp** — Mentoría y guía
+- **Silvina y Carlos** — Desarrollo, modelos ML, deployment
+- **Equipo TALENTO TECH - AI-Bootcamp** — Mentoría y guía
 
 ---
 
@@ -920,7 +920,6 @@ Este proyecto está bajo la licencia **MIT**. Ver archivo `LICENSE` para más de
 
 Para preguntas o issues:
 - Abrir issue en GitHub
-- Contactar vía: [tu email o contacto]
 
 ---
 
@@ -992,4 +991,4 @@ Para preguntas o issues:
 
 **Última actualización:** Junio 2026  
 **Rama:** `deployment`  
-**Estado:** 🟢 Activo en producción
+**Estado:** 🟢 Activo en producción.
